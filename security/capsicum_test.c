@@ -4,6 +4,9 @@
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
+#include <linux/sched.h>
+#include <linux/syscalls.h>
 
 #include "capsicum_int.h"
 
@@ -12,18 +15,22 @@
 
 FIXTURE(new_cap) {
 	struct file *orig;
-	struct file *cap;
+	int cap;
+	struct file *capf;
 };
 
 FIXTURE_SETUP(new_cap) {
 	self->orig = fget(0);
 	ASSERT_NE(self->orig, NULL);
 	self->cap = capsicum_wrap_new(self->orig, 0);
+	ASSERT_GT(self->cap, 0);
+	self->capf = fcheck(self->cap);
+	ASSERT_NE(self->capf, NULL);
 }
 
 FIXTURE_TEARDOWN(new_cap) {
 	fput(self->orig);
-	fput(self->cap);
+	sys_close(self->cap);
 }
 
 TEST_F(new_cap, init_ok) {
@@ -31,10 +38,9 @@ TEST_F(new_cap, init_ok) {
 	struct file *f;
 
 	EXPECT_GT(file_count(self->orig), 1);
-	EXPECT_EQ(file_count(self->cap), 1);
+	EXPECT_EQ(file_count(self->capf), 1);
 
-	EXPECT_NE(self->cap, NULL);
-	f = capsicum_unwrap(self->cap, &rights);
+	f = capsicum_unwrap(self->capf, &rights);
 	EXPECT_EQ(rights, 0);
 	EXPECT_EQ(f, self->orig);
 }
@@ -45,7 +51,9 @@ TEST_F(new_cap, rewrap) {
 
 	int old_count = file_count(self->orig);
 
-	f = capsicum_wrap_new(self->cap, -1);
+	int fd = capsicum_wrap_new(self->capf, -1);
+	ASSERT_GT(fd, 0);
+	f = fcheck(fd);
 
 	uw = capsicum_unwrap(f, &rights);
 	EXPECT_EQ(rights, -1);
@@ -59,9 +67,76 @@ TEST_F(new_cap, rewrap) {
 }
 
 TEST_F(new_cap, is_cap) {
-	EXPECT_TRUE(capsicum_is_cap(self->cap));
+	EXPECT_TRUE(capsicum_is_cap(self->capf));
 	EXPECT_FALSE(capsicum_is_cap(self->orig));
 }
+
+FIXTURE(fget) {
+	struct file * orig;
+	int cap;
+
+	int orig_refs;
+};
+
+FIXTURE_SETUP(fget) {
+	self->orig = fget(0);
+	self->orig_refs = file_count(self->orig);
+	self->cap = capsicum_wrap_new(self->orig, 0);
+	ASSERT_EQ(file_count(self->orig), self->orig_refs+1);
+	ASSERT_EQ(file_count(fcheck(self->cap)), 1);
+}
+
+FIXTURE_TEARDOWN(fget) {
+	ASSERT_EQ(file_count(self->orig), self->orig_refs+1);
+	sys_close(self->cap);
+	ASSERT_EQ(file_count(self->orig), self->orig_refs);
+	fput(self->orig);
+	ASSERT_EQ(file_count(self->orig), self->orig_refs-1);
+}
+
+TEST_F(fget, fget) {
+	struct file *f = fget(self->cap);
+
+	EXPECT_EQ(f, self->orig);
+	EXPECT_EQ(file_count(fcheck(self->cap)), 1);
+	EXPECT_EQ(file_count(self->orig), self->orig_refs+2);
+
+	fput(f);
+}
+
+TEST_F(fget, fget_light) {
+	int fpn;
+	struct file *f = fget_light(self->cap, &fpn);
+
+
+	EXPECT_EQ(fpn, 0);
+	EXPECT_EQ(file_count(self->orig), self->orig_refs+1);
+
+	fput_light(f, fpn);
+}
+
+TEST_F(fget, fget_raw) {
+	struct file *f = fget_raw(self->cap);
+
+	EXPECT_EQ(f, self->orig);
+	EXPECT_EQ(file_count(fcheck(self->cap)), 1);
+	EXPECT_EQ(file_count(self->orig), self->orig_refs+2);
+
+	fput(f);
+}
+
+TEST_F(fget, fget_raw_light) {
+	int fpn;
+	struct file *f = fget_raw_light(self->cap, &fpn);
+
+
+	EXPECT_EQ(fpn, 0);
+	EXPECT_EQ(file_count(self->orig), self->orig_refs+1);
+
+	fput_light(f, fpn);
+}
+
+
 
 
 /*

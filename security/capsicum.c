@@ -36,11 +36,11 @@ int capsicum_is_cap(const struct file *file)
  * Create a new file representing a capability, to wrap the original file
  * passed in, with the given rights. If orig is already a capability, the
  * new capability will refer to the underlying capability, rather than
- * creating a chain.
+ * creating a chain. Returns the fd number.
  */
-struct file * capsicum_wrap_new(struct file * orig, u64 rights)
+int capsicum_wrap_new(struct file * orig, u64 rights)
 {
-	struct file * f = NULL;
+	int fd;
 	struct capability * cap;
 
 	if(capsicum_is_cap(orig)) {
@@ -49,22 +49,20 @@ struct file * capsicum_wrap_new(struct file * orig, u64 rights)
 
 	cap = kmalloc(sizeof(*cap), GFP_KERNEL);
 	if (cap == NULL)
-		return NULL;
+		return -ENOMEM;
 
 	cap->rights = rights;
 	cap->underlying = orig;
 	get_file(orig);
 
-	f = anon_inode_getfile("[capability]", &capability_ops, cap, 0);
+	fd = anon_inode_getfd("[capability]", &capability_ops, cap, 0);
 
-	if(IS_ERR(f))
-		goto err_out;
+	if(fd < 0) {
+		kfree(cap);
+		fput(orig);
+	}
 
-	return f;
-
-err_out:
-	kfree(cap);
-	return f;
+	return fd;
 }
 
 /*
