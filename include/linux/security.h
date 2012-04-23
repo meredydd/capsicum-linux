@@ -1499,6 +1499,10 @@ struct security_operations {
 	int (*file_receive) (struct file *file);
 	int (*dentry_open) (struct file *file, const struct cred *cred);
 
+#ifdef CONFIG_CAPSICUM
+	struct file *(*file_lookup) (unsigned int fd, struct file * result);
+#endif
+
 	int (*task_create) (unsigned long clone_flags);
 	void (*task_free) (struct task_struct *task);
 	int (*cred_alloc_blank) (struct cred *cred, gfp_t gfp);
@@ -1757,6 +1761,9 @@ int security_file_send_sigiotask(struct task_struct *tsk,
 				 struct fown_struct *fown, int sig);
 int security_file_receive(struct file *file);
 int security_dentry_open(struct file *file, const struct cred *cred);
+#ifdef CONFIG_CAPSICUM
+struct file *security_file_lookup(unsigned int fd, struct file * result);
+#endif
 int security_task_create(unsigned long clone_flags);
 void security_task_free(struct task_struct *task);
 int security_cred_alloc_blank(struct cred *cred, gfp_t gfp);
@@ -2232,6 +2239,14 @@ static inline int security_dentry_open(struct file *file,
 {
 	return 0;
 }
+
+#ifdef CONFIG_CAPSICUM
+static inline struct file *security_file_lookup(unsigned int fd, struct file * result)
+{
+	return result;
+}
+#endif
+
 
 static inline int security_task_create(unsigned long clone_flags)
 {

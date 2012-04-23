@@ -105,11 +105,11 @@ TEST_F(fget, fget) {
 }
 
 TEST_F(fget, fget_light) {
-	int fpn;
+	int fpn, fpn2;
 	struct file *f = fget_light(self->cap, &fpn);
 
-
-	EXPECT_EQ(fpn, 0);
+	EXPECT_EQ(f, self->orig);
+	EXPECT_FALSE(fpn);
 	EXPECT_EQ(file_count(self->orig), self->orig_refs+1);
 
 	fput_light(f, fpn);
@@ -130,6 +130,7 @@ TEST_F(fget, fget_raw_light) {
 	struct file *f = fget_raw_light(self->cap, &fpn);
 
 
+	EXPECT_EQ(f, self->orig);
 	EXPECT_EQ(fpn, 0);
 	EXPECT_EQ(file_count(self->orig), self->orig_refs+1);
 

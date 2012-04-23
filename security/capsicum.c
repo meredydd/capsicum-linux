@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/anon_inodes.h>
 #include <linux/slab.h>
+#include <linux/security.h>
 
 #include "capsicum_int.h"
 
@@ -15,13 +16,19 @@ struct capability {
 };
 
 extern const struct file_operations capability_ops;
+extern struct security_operations capsicum_security_ops;
 
 
 
 
-static int capsicum_init(void)
+static int __init capsicum_init(void)
 {
-	printk("capsicum_init()");
+	printk("capsicum_init()\n");
+	if(!security_module_enable(&capsicum_security_ops)) {
+		printk("Capsicum not enabled\n");
+	} else {
+		register_security(&capsicum_security_ops);
+	}
 	return 0;
 }
 __initcall(capsicum_init);
@@ -106,6 +113,15 @@ static int capsicum_release(struct inode *i, struct file *fp)
 }
 
 
+static struct file * capsicum_file_lookup(unsigned int fd, struct file *file)
+{
+	/* TODO unwrapping is currently unconditional. This needs fixing. */
+	struct file * unwrapped = capsicum_unwrap(file, NULL);
+	if(unwrapped != NULL)
+		file = unwrapped;
+
+	return file;
+}
 
 
 
@@ -144,4 +160,7 @@ const struct file_operations capability_ops = {
 };
 
 
-
+struct security_operations capsicum_security_ops = {
+		.name = "capsicum",
+		.file_lookup = capsicum_file_lookup
+};

@@ -27,9 +27,6 @@
 
 #include <linux/atomic.h>
 
-/* Meredydd temporary addition */
-#include "../security/capsicum_int.h"
-
 #include "internal.h"
 
 /* sysctl tunables... */
@@ -285,18 +282,19 @@ struct file *fget(unsigned int fd)
 	if (file) {
 		/* File object ref couldn't be taken */
 		if (file->f_mode & FMODE_PATH ||
-		    !atomic_long_inc_not_zero(&file->f_count))
+		    !atomic_long_inc_not_zero(&file->f_count)) {
 			file = NULL;
-		/* Meredydd temporary test */
-		else {
-			struct file * unwrapped = capsicum_unwrap(file, NULL);
-			if(unwrapped != NULL) {
-				get_file(unwrapped);
+		} else {
+			struct file *f = security_file_lookup(fd, file);
+			if(f != file) {
 				atomic_long_dec(&file->f_count);
-				file = unwrapped;
+				if(f->f_mode & FMODE_PATH ||
+						!atomic_long_inc_not_zero(&f->f_count))
+					file = NULL;
+				else
+					file = f;
 			}
 		}
-		/* End Meredydd temporary test */
 	}
 	rcu_read_unlock();
 
@@ -314,19 +312,19 @@ struct file *fget_raw(unsigned int fd)
 	file = fcheck_files(files, fd);
 	if (file) {
 		/* File object ref couldn't be taken */
-		if (!atomic_long_inc_not_zero(&file->f_count))
+		if (!atomic_long_inc_not_zero(&file->f_count)) {
 			file = NULL;
 
-		/* Meredydd temporary test */
-		else {
-			struct file * unwrapped = capsicum_unwrap(file, NULL);
-			if(unwrapped != NULL) {
-				get_file(unwrapped);
+		} else {
+			struct file *f = security_file_lookup(fd, file);
+			if(f != file) {
 				atomic_long_dec(&file->f_count);
-				file = unwrapped;
+				if(!atomic_long_inc_not_zero(&f->f_count))
+					file = NULL;
+				else
+					file = f;
 			}
 		}
-		/* End Meredydd temporary test */
 	}
 	rcu_read_unlock();
 
@@ -358,13 +356,9 @@ struct file *fget_light(unsigned int fd, int *fput_needed)
 
 	*fput_needed = 0;
 	if (atomic_read(&files->count) == 1) {
-		struct file * unwrapped;
 		file = fcheck_files(files, fd);
-		/* Meredydd temporary test */
-		unwrapped = capsicum_unwrap(file, NULL);
-		if(unwrapped != NULL)
-			file = unwrapped;
-		/* End Meredydd temporary test */
+		file = security_file_lookup(fd, file);
+
 		if (file && (file->f_mode & FMODE_PATH))
 			file = NULL;
 	} else {
@@ -373,18 +367,21 @@ struct file *fget_light(unsigned int fd, int *fput_needed)
 		if (file) {
 			if (!(file->f_mode & FMODE_PATH) &&
 			    atomic_long_inc_not_zero(&file->f_count)) {
-				/* Meredydd temporary test */
-				struct file * unwrapped = capsicum_unwrap(file, NULL);
-				if(unwrapped != NULL) {
-					get_file(unwrapped);
+				struct file *f = security_file_lookup(fd, file);
+				if(f != file) {
 					atomic_long_dec(&file->f_count);
-					file = unwrapped;
+					if(!(f->f_mode & FMODE_PATH) &&
+							atomic_long_inc_not_zero(&f->f_count)) {
+						file = f;
+						*fput_needed = 1;
+					} else {
+						file = NULL;
+					}
 				}
-				/* End Meredydd temporary test */
-				*fput_needed = 1;
-			}else
+			} else {
 				/* Didn't get the reference, someone's freed */
 				file = NULL;
+			}
 		}
 		rcu_read_unlock();
 	}
@@ -399,30 +396,27 @@ struct file *fget_raw_light(unsigned int fd, int *fput_needed)
 
 	*fput_needed = 0;
 	if (atomic_read(&files->count) == 1) {
-		struct file * unwrapped;
 		file = fcheck_files(files, fd);
-		/* Meredydd temporary test */
-		unwrapped = capsicum_unwrap(file, NULL);
-		if(unwrapped != NULL)
-			file = unwrapped;
-		/* End Meredydd temporary test */
+		file = security_file_lookup(fd, file);
 	} else {
 		rcu_read_lock();
 		file = fcheck_files(files, fd);
 		if (file) {
 			if (atomic_long_inc_not_zero(&file->f_count)) {
-				/* Meredydd temporary test */
-				struct file * unwrapped = capsicum_unwrap(file, NULL);
-				if(unwrapped != NULL) {
-					get_file(unwrapped);
+				struct file *f = security_file_lookup(fd, file);
+				if(f != file) {
 					atomic_long_dec(&file->f_count);
-					file = unwrapped;
+					if(atomic_long_inc_not_zero(&f->f_count)) {
+						file = f;
+						*fput_needed = 1;
+					} else {
+						file = NULL;
+					}
 				}
-				/* End Meredydd temporary test */
-				*fput_needed = 1;
-			} else
+			} else {
 				/* Didn't get the reference, someone's freed */
 				file = NULL;
+			}
 		}
 		rcu_read_unlock();
 	}

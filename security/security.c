@@ -712,6 +712,11 @@ int security_dentry_open(struct file *file, const struct cred *cred)
 	return fsnotify_perm(file, MAY_OPEN);
 }
 
+struct file *security_file_lookup(unsigned int fd, struct file * result)
+{
+	return security_ops->file_lookup(fd, result);
+}
+
 int security_task_create(unsigned long clone_flags)
 {
 	return security_ops->task_create(clone_flags);
