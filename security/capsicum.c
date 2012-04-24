@@ -1,10 +1,12 @@
+#include <linux/anon_inodes.h>
+#include <linux/fs.h>
+#include <linux/fdtable.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
-#include <linux/fs.h>
-#include <linux/anon_inodes.h>
 #include <linux/slab.h>
 #include <linux/security.h>
+#include <linux/syscalls.h>
 
 #include "capsicum_int.h"
 
@@ -15,6 +17,9 @@ struct capability {
 	struct file *underlying;
 };
 
+int enabled;
+
+
 extern const struct file_operations capability_ops;
 extern struct security_operations capsicum_security_ops;
 
@@ -24,14 +29,52 @@ extern struct security_operations capsicum_security_ops;
 static int __init capsicum_init(void)
 {
 	printk("capsicum_init()\n");
-	if(!security_module_enable(&capsicum_security_ops)) {
-		printk("Capsicum not enabled\n");
-	} else {
+	enabled = security_module_enable(&capsicum_security_ops);
+	if(enabled)
 		register_security(&capsicum_security_ops);
-	}
+	else
+		printk("Capsicum not enabled\n");
+
 	return 0;
 }
 __initcall(capsicum_init);
+
+
+static int sys_cap_new_impl(unsigned int orig_fd, u64 new_rights)
+{
+	struct file *file;
+	struct files_struct *files = current->files;
+	int ret = 0;
+	u64 existing_rights = (u64)-1;
+
+	rcu_read_lock();
+	file = fcheck_files(files, orig_fd);
+
+	if(file && capsicum_is_cap(file))
+		file = capsicum_unwrap(file, &existing_rights);
+
+	if(file && !atomic_long_inc_not_zero(&file->f_count))
+		file = NULL;
+
+	rcu_read_unlock();
+
+	if(!file)
+		ret = -EBADF;
+	else
+		ret = capsicum_wrap_new(file, new_rights & existing_rights);
+
+	return ret;
+}
+
+SYSCALL_DEFINE2(cap_new, unsigned int, orig_fd, u64, new_rights)
+{
+	return sys_cap_new_impl(orig_fd, new_rights);
+}
+
+SYSCALL_DEFINE0(cap_enter)
+{
+	panic("cap_enter() is not defined!");
+}
 
 
 int capsicum_is_cap(const struct file *file)
