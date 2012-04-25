@@ -1,3 +1,3 @@
 cp arch/um/defconfig .config
 make menuconfig ARCH=um O=`pwd`/build
-make linux ARCH=um O=`pwd`/build/
+make -j14 linux ARCH=um O=`pwd`/build/
