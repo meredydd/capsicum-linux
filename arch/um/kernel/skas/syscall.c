@@ -18,6 +18,12 @@ void handle_syscall(struct uml_pt_regs *r)
 	long result;
 	int syscall;
 
+        /* do the secure computing check first */
+        if (secure_computing(r->syscall)) {
+                /* seccomp failures shouldn't expose any additional code. */
+                return;
+        }
+
 	syscall_trace(r, 0);
 
 	/*
@@ -33,6 +39,7 @@ void handle_syscall(struct uml_pt_regs *r)
 	if ((syscall >= NR_SYSCALLS) || (syscall < 0))
 		result = -ENOSYS;
 	else result = EXECUTE_SYSCALL(syscall, regs);
+
 
 	REGS_SET_SYSCALL_RETURN(r->gp, result);
 
